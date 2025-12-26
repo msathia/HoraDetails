@@ -104,18 +104,52 @@ def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chi
     # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
     
+    # Expected sunrise range for Austin (in minutes from midnight)
+    # Austin sunrise in December: ~7:20-7:30 AM = 440-450 minutes
+    # Allow some tolerance: 420-480 minutes (7:00-8:00 AM)
+    AUSTIN_SUNRISE_MIN = 420  # 7:00 AM
+    AUSTIN_SUNRISE_MAX = 480  # 8:00 AM
+    
     driver = get_chrome_driver()
     
     try:
-        driver.get(url)
-        time.sleep(6)
+        page_source = None
+        detected_location = "Unknown"
         
-        page_title = driver.title
-        page_source = driver.page_source
-        
-        # Extract location from page title
-        location_match = re.search(r'for\s+([^,]+,\s*[^,]+,\s*[^"<]+)', page_title)
-        detected_location = location_match.group(1).strip() if location_match else "Unknown"
+        # Retry up to 3 times to get consistent Austin data
+        for attempt in range(3):
+            driver.get(url)
+            time.sleep(6)
+            
+            page_title = driver.title
+            page_source = driver.page_source
+            
+            # Extract location from page title
+            location_match = re.search(r'for\s+([^,]+,\s*[^,]+,\s*[^"<]+)', page_title)
+            detected_location = location_match.group(1).strip() if location_match else "Unknown"
+            
+            # For Austin (geoname_id 4671654), validate sunrise time
+            if geoname_id == 4671654:
+                # Quick check: find first hora start time
+                first_hora_match = re.search(
+                    r'<span class="dpVerticalMiddleText">(Jupiter|Mars|Sun|Venus|Mercury|Moon|Saturn)\s*-\s*\w+.*?</span>.*?<span class="dpVerticalMiddleText">(\d{1,2}):(\d{2})\s*<span[^>]*>(AM)</span>',
+                    page_source, re.DOTALL
+                )
+                if first_hora_match:
+                    hour = int(first_hora_match.group(2))
+                    minute = int(first_hora_match.group(3))
+                    first_hora_minutes = hour * 60 + minute
+                    
+                    # Check if it's within expected Austin sunrise range
+                    if AUSTIN_SUNRISE_MIN <= first_hora_minutes <= AUSTIN_SUNRISE_MAX:
+                        break  # Data looks correct for Austin
+                    else:
+                        # Data might be from wrong location, retry
+                        driver.delete_all_cookies()
+                        time.sleep(2)
+                        continue
+            else:
+                break  # For other locations, just accept the data
         
         # Extract running hora
         running_hora_match = re.search(
