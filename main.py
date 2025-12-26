@@ -4,12 +4,16 @@ from fastapi.responses import JSONResponse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Optional
 import time
 import re
 import os
+
+# Simple cache for scraped data (cache for 5 minutes)
+_hora_cache = {}
+CACHE_DURATION_MINUTES = 5
 
 app = FastAPI(
     title="Hora API",
@@ -119,6 +123,38 @@ def time_to_minutes(time_str: str, ampm: str) -> int:
 
 def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chicago", lat: float = 30.2672, lng: float = -97.7431) -> dict:
     """Scrape hora data from Drik Panchang using explicit geoname-id with location emulation."""
+    global _hora_cache
+    
+    # Create cache key
+    cache_key = f"{geoname_id}_{date_str}"
+    
+    # Check if we have valid cached data
+    if cache_key in _hora_cache:
+        cached_data, cached_time = _hora_cache[cache_key]
+        if datetime.now() - cached_time < timedelta(minutes=CACHE_DURATION_MINUTES):
+            # Update current_time in cached data to reflect actual current time
+            tz = ZoneInfo(timezone_str)
+            now = datetime.now(tz)
+            cached_data['current_time'] = now.strftime("%I:%M %p")
+            
+            # Re-calculate current hora based on actual current time
+            current_minutes = now.hour * 60 + now.minute
+            for i, hora in enumerate(cached_data.get('full_schedule', [])):
+                start_mins = hora['start_minutes']
+                end_mins = hora['end_minutes']
+                if end_mins < start_mins:
+                    end_mins += 24 * 60
+                    check_mins = current_minutes + 24 * 60 if current_minutes < 12 * 60 else current_minutes
+                else:
+                    check_mins = current_minutes
+                if start_mins <= check_mins < end_mins:
+                    cached_data['current_hora'] = hora
+                    if i + 1 < len(cached_data['full_schedule']):
+                        cached_data['next_hora'] = cached_data['full_schedule'][i + 1]
+                    break
+            
+            return cached_data
+    
     # Use geoname-id parameter - this determines the location's hora schedule
     # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
@@ -206,7 +242,7 @@ def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chi
         # Get Jupiter horas
         jupiter_horas = [h for h in hora_schedule if h['planet'] == 'Jupiter']
         
-        return {
+        result = {
             'success': True,
             'title': page_title,
             'location': detected_location,
@@ -220,6 +256,11 @@ def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chi
             'night_horas': night_horas,
             'full_schedule': hora_schedule,
         }
+        
+        # Cache the result
+        _hora_cache[cache_key] = (result.copy(), datetime.now())
+        
+        return result
         
     except Exception as e:
         return {
