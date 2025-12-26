@@ -5,6 +5,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from typing import Optional
 import time
 import re
@@ -36,24 +37,24 @@ PLANET_INFO = {
     "Saturn": {"emoji": "♄", "nature": "Sluggish", "quality": "avoid"},
 }
 
-# Common geoname IDs
+# Common geoname IDs with timezone info
 LOCATIONS = {
-    "austin": 4671654,
-    "san_diego": 5391811,
-    "los_angeles": 5368361,
-    "new_york": 5128581,
-    "chicago": 4887398,
-    "houston": 4699066,
-    "san_francisco": 5391959,
-    "chennai": 1264527,
-    "hyderabad": 1269843,
-    "mumbai": 1275339,
-    "bangalore": 1277333,
-    "delhi": 1273294,
-    "kolkata": 1275004,
-    "london": 2643743,
-    "sydney": 2147714,
-    "singapore": 1880252,
+    "austin": {"geoname_id": 4671654, "timezone": "America/Chicago"},
+    "san_diego": {"geoname_id": 5391811, "timezone": "America/Los_Angeles"},
+    "los_angeles": {"geoname_id": 5368361, "timezone": "America/Los_Angeles"},
+    "new_york": {"geoname_id": 5128581, "timezone": "America/New_York"},
+    "chicago": {"geoname_id": 4887398, "timezone": "America/Chicago"},
+    "houston": {"geoname_id": 4699066, "timezone": "America/Chicago"},
+    "san_francisco": {"geoname_id": 5391959, "timezone": "America/Los_Angeles"},
+    "chennai": {"geoname_id": 1264527, "timezone": "Asia/Kolkata"},
+    "hyderabad": {"geoname_id": 1269843, "timezone": "Asia/Kolkata"},
+    "mumbai": {"geoname_id": 1275339, "timezone": "Asia/Kolkata"},
+    "bangalore": {"geoname_id": 1277333, "timezone": "Asia/Kolkata"},
+    "delhi": {"geoname_id": 1273294, "timezone": "Asia/Kolkata"},
+    "kolkata": {"geoname_id": 1275004, "timezone": "Asia/Kolkata"},
+    "london": {"geoname_id": 2643743, "timezone": "Europe/London"},
+    "sydney": {"geoname_id": 2147714, "timezone": "Australia/Sydney"},
+    "singapore": {"geoname_id": 1880252, "timezone": "Asia/Singapore"},
 }
 
 
@@ -97,7 +98,7 @@ def time_to_minutes(time_str: str, ampm: str) -> int:
     return hour * 60 + minute
 
 
-def scrape_hora(geoname_id: int, date_str: str) -> dict:
+def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chicago") -> dict:
     """Scrape hora data from Drik Panchang using explicit geoname-id."""
     # Use geoname-id parameter to get location-specific data
     # geoname-id=4671654 for Austin, TX
@@ -140,8 +141,9 @@ def scrape_hora(geoname_id: int, date_str: str) -> dict:
                 'end_minutes': time_to_minutes(end_time, end_ampm),
             })
         
-        # Current time analysis
-        now = datetime.now()
+        # Current time analysis - USE LOCATION'S TIMEZONE
+        tz = ZoneInfo(timezone_str)
+        now = datetime.now(tz)
         current_minutes = now.hour * 60 + now.minute
         
         current_hora = None
@@ -234,7 +236,7 @@ async def health_check():
 async def get_locations():
     """Get list of available preset locations with their geoname IDs."""
     return {
-        "locations": {k: {"geoname_id": v, "name": k.replace("_", " ").title()} 
+        "locations": {k: {"geoname_id": v["geoname_id"], "timezone": v["timezone"], "name": k.replace("_", " ").title()} 
                       for k, v in LOCATIONS.items()}
     }
 
@@ -256,7 +258,7 @@ async def get_hora(
     - `/hora?geoname_id=1264527` - Custom location
     - `/hora?location=austin&date=25/12/2025` - Specific date
     """
-    # Determine geoname_id
+    # Determine geoname_id and timezone
     if location:
         location_key = location.lower().replace(" ", "_")
         if location_key not in LOCATIONS:
@@ -264,21 +266,27 @@ async def get_hora(
                 status_code=400, 
                 detail=f"Unknown location '{location}'. Use /locations to see available options."
             )
-        geo_id = LOCATIONS[location_key]
+        loc_info = LOCATIONS[location_key]
+        geo_id = loc_info["geoname_id"]
+        timezone_str = loc_info["timezone"]
     elif geoname_id:
         geo_id = geoname_id
+        timezone_str = "America/Chicago"  # Default to Austin timezone for custom geoname_id
     else:
         # Default to Austin, TX
-        geo_id = LOCATIONS["austin"]
+        geo_id = LOCATIONS["austin"]["geoname_id"]
+        timezone_str = LOCATIONS["austin"]["timezone"]
     
-    # Determine date
+    # Determine date - USE LOCATION'S TIMEZONE for today's date
     if date:
         date_str = date
     else:
-        date_str = datetime.now().strftime("%d/%m/%Y")
+        tz = ZoneInfo(timezone_str)
+        local_now = datetime.now(tz)
+        date_str = local_now.strftime("%d/%m/%Y")
     
-    # Scrape hora data
-    result = scrape_hora(geo_id, date_str)
+    # Scrape hora data with location's timezone
+    result = scrape_hora(geo_id, date_str, timezone_str)
     
     if not result['success']:
         raise HTTPException(status_code=500, detail=result.get('error', 'Failed to fetch hora data'))
