@@ -37,29 +37,29 @@ PLANET_INFO = {
     "Saturn": {"emoji": "♄", "nature": "Sluggish", "quality": "avoid"},
 }
 
-# Common geoname IDs with timezone info
+# Common geoname IDs with timezone and coordinates
 LOCATIONS = {
-    "austin": {"geoname_id": 4671654, "timezone": "America/Chicago"},
-    "san_diego": {"geoname_id": 5391811, "timezone": "America/Los_Angeles"},
-    "los_angeles": {"geoname_id": 5368361, "timezone": "America/Los_Angeles"},
-    "new_york": {"geoname_id": 5128581, "timezone": "America/New_York"},
-    "chicago": {"geoname_id": 4887398, "timezone": "America/Chicago"},
-    "houston": {"geoname_id": 4699066, "timezone": "America/Chicago"},
-    "san_francisco": {"geoname_id": 5391959, "timezone": "America/Los_Angeles"},
-    "chennai": {"geoname_id": 1264527, "timezone": "Asia/Kolkata"},
-    "hyderabad": {"geoname_id": 1269843, "timezone": "Asia/Kolkata"},
-    "mumbai": {"geoname_id": 1275339, "timezone": "Asia/Kolkata"},
-    "bangalore": {"geoname_id": 1277333, "timezone": "Asia/Kolkata"},
-    "delhi": {"geoname_id": 1273294, "timezone": "Asia/Kolkata"},
-    "kolkata": {"geoname_id": 1275004, "timezone": "Asia/Kolkata"},
-    "london": {"geoname_id": 2643743, "timezone": "Europe/London"},
-    "sydney": {"geoname_id": 2147714, "timezone": "Australia/Sydney"},
-    "singapore": {"geoname_id": 1880252, "timezone": "Asia/Singapore"},
+    "austin": {"geoname_id": 4671654, "timezone": "America/Chicago", "lat": 30.2672, "lng": -97.7431},
+    "san_diego": {"geoname_id": 5391811, "timezone": "America/Los_Angeles", "lat": 32.7157, "lng": -117.1611},
+    "los_angeles": {"geoname_id": 5368361, "timezone": "America/Los_Angeles", "lat": 34.0522, "lng": -118.2437},
+    "new_york": {"geoname_id": 5128581, "timezone": "America/New_York", "lat": 40.7128, "lng": -74.0060},
+    "chicago": {"geoname_id": 4887398, "timezone": "America/Chicago", "lat": 41.8781, "lng": -87.6298},
+    "houston": {"geoname_id": 4699066, "timezone": "America/Chicago", "lat": 29.7604, "lng": -95.3698},
+    "san_francisco": {"geoname_id": 5391959, "timezone": "America/Los_Angeles", "lat": 37.7749, "lng": -122.4194},
+    "chennai": {"geoname_id": 1264527, "timezone": "Asia/Kolkata", "lat": 13.0827, "lng": 80.2707},
+    "hyderabad": {"geoname_id": 1269843, "timezone": "Asia/Kolkata", "lat": 17.3850, "lng": 78.4867},
+    "mumbai": {"geoname_id": 1275339, "timezone": "Asia/Kolkata", "lat": 19.0760, "lng": 72.8777},
+    "bangalore": {"geoname_id": 1277333, "timezone": "Asia/Kolkata", "lat": 12.9716, "lng": 77.5946},
+    "delhi": {"geoname_id": 1273294, "timezone": "Asia/Kolkata", "lat": 28.6139, "lng": 77.2090},
+    "kolkata": {"geoname_id": 1275004, "timezone": "Asia/Kolkata", "lat": 22.5726, "lng": 88.3639},
+    "london": {"geoname_id": 2643743, "timezone": "Europe/London", "lat": 51.5074, "lng": -0.1278},
+    "sydney": {"geoname_id": 2147714, "timezone": "Australia/Sydney", "lat": -33.8688, "lng": 151.2093},
+    "singapore": {"geoname_id": 1880252, "timezone": "Asia/Singapore", "lat": 1.3521, "lng": 103.8198},
 }
 
 
-def get_chrome_driver(timezone: str = "America/Chicago"):
-    """Configure and return Chrome WebDriver for headless operation."""
+def get_chrome_driver(timezone: str = "America/Chicago", latitude: float = 30.2672, longitude: float = -97.7431):
+    """Configure and return Chrome WebDriver for headless operation with location emulation."""
     # Set timezone environment variable to match target location
     os.environ['TZ'] = timezone
     
@@ -69,12 +69,12 @@ def get_chrome_driver(timezone: str = "America/Chicago"):
     chrome_options.add_argument("--disable-dev-shm-usage")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
+    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    # Disable geolocation to force website to use geoname-id parameter
+    # Allow geolocation so we can spoof it
     prefs = {
-        "profile.default_content_setting_values.geolocation": 2,  # Block geolocation
+        "profile.default_content_setting_values.geolocation": 1,  # Allow geolocation
         "profile.default_content_setting_values.notifications": 2,  # Block notifications
     }
     chrome_options.add_experimental_option("prefs", prefs)
@@ -89,11 +89,19 @@ def get_chrome_driver(timezone: str = "America/Chicago"):
     
     driver = webdriver.Chrome(options=chrome_options)
     
-    # Set timezone via Chrome DevTools Protocol
+    # Emulate Austin, TX location using Chrome DevTools Protocol
     try:
+        # Set timezone
         driver.execute_cdp_cmd('Emulation.setTimezoneOverride', {'timezoneId': timezone})
+        
+        # Set geolocation to Austin, TX coordinates
+        driver.execute_cdp_cmd('Emulation.setGeolocationOverride', {
+            'latitude': latitude,
+            'longitude': longitude,
+            'accuracy': 100
+        })
     except Exception:
-        pass  # CDP command may not be supported in all Chrome versions
+        pass  # CDP commands may not be supported in all Chrome versions
     
     return driver
 
@@ -109,13 +117,13 @@ def time_to_minutes(time_str: str, ampm: str) -> int:
     return hour * 60 + minute
 
 
-def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chicago") -> dict:
-    """Scrape hora data from Drik Panchang using explicit geoname-id."""
+def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chicago", lat: float = 30.2672, lng: float = -97.7431) -> dict:
+    """Scrape hora data from Drik Panchang using explicit geoname-id with location emulation."""
     # Use geoname-id parameter - this determines the location's hora schedule
     # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
     
-    driver = get_chrome_driver(timezone_str)
+    driver = get_chrome_driver(timezone_str, lat, lng)
     
     try:
         driver.get(url)
@@ -269,7 +277,7 @@ async def get_hora(
     - `/hora?geoname_id=1264527` - Custom location
     - `/hora?location=austin&date=25/12/2025` - Specific date
     """
-    # Determine geoname_id and timezone
+    # Determine geoname_id, timezone, and coordinates
     if location:
         location_key = location.lower().replace(" ", "_")
         if location_key not in LOCATIONS:
@@ -280,13 +288,21 @@ async def get_hora(
         loc_info = LOCATIONS[location_key]
         geo_id = loc_info["geoname_id"]
         timezone_str = loc_info["timezone"]
+        lat = loc_info["lat"]
+        lng = loc_info["lng"]
     elif geoname_id:
         geo_id = geoname_id
-        timezone_str = "America/Chicago"  # Default to Austin timezone for custom geoname_id
+        # Default to Austin for custom geoname_id
+        timezone_str = "America/Chicago"
+        lat = 30.2672
+        lng = -97.7431
     else:
         # Default to Austin, TX
-        geo_id = LOCATIONS["austin"]["geoname_id"]
-        timezone_str = LOCATIONS["austin"]["timezone"]
+        loc_info = LOCATIONS["austin"]
+        geo_id = loc_info["geoname_id"]
+        timezone_str = loc_info["timezone"]
+        lat = loc_info["lat"]
+        lng = loc_info["lng"]
     
     # Determine date - USE LOCATION'S TIMEZONE for today's date
     if date:
@@ -296,8 +312,8 @@ async def get_hora(
         local_now = datetime.now(tz)
         date_str = local_now.strftime("%d/%m/%Y")
     
-    # Scrape hora data with location's timezone
-    result = scrape_hora(geo_id, date_str, timezone_str)
+    # Scrape hora data with location emulation
+    result = scrape_hora(geo_id, date_str, timezone_str, lat, lng)
     
     if not result['success']:
         raise HTTPException(status_code=500, detail=result.get('error', 'Failed to fetch hora data'))
