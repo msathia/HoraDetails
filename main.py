@@ -100,61 +100,22 @@ def time_to_minutes(time_str: str, ampm: str) -> int:
 
 def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chicago") -> dict:
     """Scrape hora data from Drik Panchang using explicit geoname-id."""
-    # Use geoname-id parameter to get location-specific data
+    # Use geoname-id parameter - this determines the location's hora schedule
     # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
-    
-    # For Austin (geoname_id 4671654), we expect specific hora patterns
-    # Austin Dec 25: First day hora is Jupiter at ~7:25 AM, Saturn night at ~6:46 PM
-    # We validate by checking the first hora matches Jupiter around 7:20-7:30 AM
-    AUSTIN_EXPECTED_FIRST_HORA = "Jupiter"
-    AUSTIN_EXPECTED_START_MIN = 440  # 7:20 AM in minutes
-    AUSTIN_EXPECTED_START_MAX = 450  # 7:30 AM in minutes
     
     driver = get_chrome_driver()
     
     try:
-        page_source = None
-        detected_location = "Unknown"
-        valid_data = False
+        driver.get(url)
+        time.sleep(6)
         
-        # Retry up to 5 times to get consistent Austin data
-        for attempt in range(5):
-            driver.get(url)
-            time.sleep(7)  # Wait a bit longer
-            
-            page_title = driver.title
-            page_source = driver.page_source
-            
-            # Extract location from page title
-            location_match = re.search(r'for\s+([^,]+,\s*[^,]+,\s*[^"<]+)', page_title)
-            detected_location = location_match.group(1).strip() if location_match else "Unknown"
-            
-            # For Austin (geoname_id 4671654), validate first hora is Jupiter around 7:25 AM
-            if geoname_id == 4671654 and "Austin" in detected_location:
-                # Find first hora (should be Jupiter for Austin on Thursday Dec 25)
-                first_hora_match = re.search(
-                    r'<span class="dpVerticalMiddleText">(Jupiter|Mars|Sun|Venus|Mercury|Moon|Saturn)\s*-\s*\w+.*?</span>.*?<span class="dpVerticalMiddleText">(\d{1,2}):(\d{2})\s*<span[^>]*>(AM)</span>',
-                    page_source, re.DOTALL
-                )
-                if first_hora_match:
-                    planet = first_hora_match.group(1)
-                    hour = int(first_hora_match.group(2))
-                    minute = int(first_hora_match.group(3))
-                    first_hora_minutes = hour * 60 + minute
-                    
-                    # For Austin, first hora should be Jupiter starting around 7:25 AM
-                    if planet == AUSTIN_EXPECTED_FIRST_HORA and AUSTIN_EXPECTED_START_MIN <= first_hora_minutes <= AUSTIN_EXPECTED_START_MAX:
-                        valid_data = True
-                        break  # Data is correct for Austin!
-                
-                # Data doesn't match expected Austin pattern, retry
-                driver.delete_all_cookies()
-                time.sleep(3)
-                continue
-            else:
-                valid_data = True
-                break  # For other locations, accept the data
+        page_title = driver.title
+        page_source = driver.page_source
+        
+        # Extract location from page title
+        location_match = re.search(r'for\s+([^,]+,\s*[^,]+,\s*[^"<]+)', page_title)
+        detected_location = location_match.group(1).strip() if location_match else "Unknown"
         
         # Extract running hora
         running_hora_match = re.search(
