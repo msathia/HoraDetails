@@ -251,6 +251,26 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
+@app.get("/ip")
+async def get_server_ip():
+    """Check the server's outbound IP address and location."""
+    import urllib.request
+    import json as json_lib
+    try:
+        with urllib.request.urlopen('https://ipinfo.io/json', timeout=5) as response:
+            data = json_lib.loads(response.read().decode())
+            return {
+                "ip": data.get("ip"),
+                "city": data.get("city"),
+                "region": data.get("region"),
+                "country": data.get("country"),
+                "org": data.get("org"),
+                "timezone": data.get("timezone"),
+            }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/locations")
 async def get_locations():
     """Get list of available preset locations with their geoname IDs."""
