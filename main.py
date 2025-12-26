@@ -68,6 +68,13 @@ def get_chrome_driver():
     chrome_options.add_argument("--user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
     chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
+    # Disable geolocation to force website to use geoname-id parameter
+    prefs = {
+        "profile.default_content_setting_values.geolocation": 2,  # Block geolocation
+        "profile.default_content_setting_values.notifications": 2,  # Block notifications
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+    
     # For Cloud Run, Chrome is installed at a specific path
     if os.path.exists("/usr/bin/chromium"):
         chrome_options.binary_location = "/usr/bin/chromium"
@@ -91,7 +98,9 @@ def time_to_minutes(time_str: str, ampm: str) -> int:
 
 
 def scrape_hora(geoname_id: int, date_str: str) -> dict:
-    """Scrape hora data from Drik Panchang."""
+    """Scrape hora data from Drik Panchang using explicit geoname-id."""
+    # Use geoname-id parameter to get location-specific data
+    # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
     
     driver = get_chrome_driver()
@@ -103,13 +112,17 @@ def scrape_hora(geoname_id: int, date_str: str) -> dict:
         page_title = driver.title
         page_source = driver.page_source
         
+        # Extract location from page title
+        location_match = re.search(r'for\s+([^,]+,\s*[^,]+,\s*[^"<]+)', page_title)
+        detected_location = location_match.group(1).strip() if location_match else "Unknown"
+        
         # Extract running hora
         running_hora_match = re.search(
             r'Running Hora.*?<div class="dpPHeaderLeftTitle">(.*?)</div>.*?(\d{1,2}:\d{2})\s*<span[^>]*>([AP]M)</span>\s*<span[^>]*>to\s*</span>.*?(\d{1,2}:\d{2})\s*<span[^>]*>([AP]M)</span>',
             page_source, re.DOTALL
         )
         
-        # Extract all hora entries
+        # Extract all hora entries from the table
         hora_pattern = r'<span class="dpVerticalMiddleText">(Jupiter|Mars|Sun|Venus|Mercury|Moon|Saturn)\s*-\s*(Fruitful|Aggressive|Vigorous|Beneficial|Quick|Gentle|Sluggish).*?</span>.*?<span class="dpVerticalMiddleText">(\d{1,2}:\d{2})\s*<span[^>]*>([AP]M)</span>\s*<span[^>]*>to\s*</span>.*?(\d{1,2}:\d{2})\s*<span[^>]*>([AP]M)</span>'
         matches = re.findall(hora_pattern, page_source, re.DOTALL)
         
@@ -175,6 +188,7 @@ def scrape_hora(geoname_id: int, date_str: str) -> dict:
         return {
             'success': True,
             'title': page_title,
+            'location': detected_location,
             'date': date_str,
             'geoname_id': geoname_id,
             'current_time': now.strftime("%I:%M %p"),
@@ -280,11 +294,16 @@ async def get_current_hora(
     """Get only the current running hora (lightweight response)."""
     result = await get_hora(location=location, geoname_id=geoname_id)
     
+    # Find next Jupiter hora
+    next_jupiter = find_next_jupiter_hora(result.get("full_schedule", []), result.get("current_hora"))
+    
     return {
+        "location": result.get("location", "Unknown"),
         "current_time": result["current_time"],
         "current_hora": result["current_hora"],
         "next_hora": result["next_hora"],
-        "recommendation": get_recommendation(result["current_hora"]),
+        "next_jupiter_hora": next_jupiter,
+        "recommendation": get_recommendation(result["current_hora"], next_jupiter),
     }
 
 
@@ -309,7 +328,30 @@ async def get_jupiter_horas(
     }
 
 
-def get_recommendation(hora: dict) -> str:
+def find_next_jupiter_hora(full_schedule: list, current_hora: dict) -> dict:
+    """Find the next upcoming Jupiter hora after the current hora."""
+    if not full_schedule or not current_hora:
+        return None
+    
+    current_start = current_hora.get('start_minutes', 0)
+    
+    # Find Jupiter horas that start after current hora
+    for hora in full_schedule:
+        if hora['planet'] == 'Jupiter':
+            hora_start = hora.get('start_minutes', 0)
+            # Handle overnight (if Jupiter hora is early morning and current is evening)
+            if hora_start > current_start or (current_start > 1200 and hora_start < 400):
+                return hora
+    
+    # If no future Jupiter hora found, return the first one (next day)
+    for hora in full_schedule:
+        if hora['planet'] == 'Jupiter':
+            return hora
+    
+    return None
+
+
+def get_recommendation(hora: dict, next_jupiter: dict = None) -> str:
     """Get recommendation text based on current hora."""
     if not hora:
         return "Unable to determine current hora"
@@ -317,12 +359,20 @@ def get_recommendation(hora: dict) -> str:
     planet = hora.get('planet', '')
     quality = hora.get('quality', 'neutral')
     
+    # Base recommendation
     if quality == 'good':
-        return f"✅ GOOD TIME - {planet} Hora is favorable for important activities"
+        recommendation = f"✅ GOOD TIME - {planet} Hora is favorable for important activities"
     elif quality == 'avoid':
-        return f"⚠️ CAUTION - {planet} Hora - Avoid starting new important tasks"
+        recommendation = f"⚠️ CAUTION - {planet} Hora - Avoid starting new important tasks"
     else:
-        return f"🔸 NEUTRAL - {planet} Hora - Good for authority/government matters"
+        recommendation = f"🔸 NEUTRAL - {planet} Hora - Good for authority/government matters"
+    
+    # Add next Jupiter hora info if current is not Jupiter
+    if planet != 'Jupiter' and next_jupiter:
+        jupiter_start = next_jupiter.get('start', '')
+        recommendation += f" | ♃ Next Jupiter Hora: {jupiter_start}"
+    
+    return recommendation
 
 
 if __name__ == "__main__":
