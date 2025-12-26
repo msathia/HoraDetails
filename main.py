@@ -58,8 +58,11 @@ LOCATIONS = {
 }
 
 
-def get_chrome_driver():
+def get_chrome_driver(timezone: str = "America/Chicago"):
     """Configure and return Chrome WebDriver for headless operation."""
+    # Set timezone environment variable to match target location
+    os.environ['TZ'] = timezone
+    
     chrome_options = Options()
     chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
@@ -84,7 +87,15 @@ def get_chrome_driver():
     elif os.path.exists("/usr/bin/google-chrome"):
         chrome_options.binary_location = "/usr/bin/google-chrome"
     
-    return webdriver.Chrome(options=chrome_options)
+    driver = webdriver.Chrome(options=chrome_options)
+    
+    # Set timezone via Chrome DevTools Protocol
+    try:
+        driver.execute_cdp_cmd('Emulation.setTimezoneOverride', {'timezoneId': timezone})
+    except Exception:
+        pass  # CDP command may not be supported in all Chrome versions
+    
+    return driver
 
 
 def time_to_minutes(time_str: str, ampm: str) -> int:
@@ -104,7 +115,7 @@ def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chi
     # geoname-id=4671654 for Austin, TX
     url = f"https://www.drikpanchang.com/muhurat/hora.html?geoname-id={geoname_id}&date={date_str}"
     
-    driver = get_chrome_driver()
+    driver = get_chrome_driver(timezone_str)
     
     try:
         driver.get(url)
