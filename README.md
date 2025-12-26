@@ -1,36 +1,108 @@
-# 🕉️ Hora Scraper
+# 🕉️ Hora API
 
-A Python script that fetches **Hora (planetary hour)** timings from [Drik Panchang](https://www.drikpanchang.com) for any location worldwide.
+A FastAPI web service that provides **Hora (planetary hour)** timings from [Drik Panchang](https://www.drikpanchang.com). Deploy to Google Cloud Run for a serverless, scalable API.
 
 ## What is Hora?
 
 In Vedic astrology, each hour of the day is ruled by a specific planet. These planetary hours (**Hora**) influence the auspiciousness of activities:
 
-| Planet | Nature | Best For |
-|--------|--------|----------|
-| ♃ Jupiter | Fruitful | New ventures, education, legal matters, spiritual activities |
-| ♀️ Venus | Beneficial | Arts, relationships, luxury purchases |
-| ☿ Mercury | Quick | Communication, business, travel |
-| 🌙 Moon | Gentle | Emotional matters, public dealings |
-| ☀️ Sun | Vigorous | Government work, authority matters |
-| ♂️ Mars | Aggressive | Avoid starting new tasks |
-| ♄ Saturn | Sluggish | Avoid important activities |
+| Planet | Nature | Quality | Best For |
+|--------|--------|---------|----------|
+| ♃ Jupiter | Fruitful | ✅ Good | New ventures, education, legal matters, spiritual activities |
+| ♀️ Venus | Beneficial | ✅ Good | Arts, relationships, luxury purchases |
+| ☿ Mercury | Quick | ✅ Good | Communication, business, travel |
+| 🌙 Moon | Gentle | ✅ Good | Emotional matters, public dealings |
+| ☀️ Sun | Vigorous | 🔸 Neutral | Government work, authority matters |
+| ♂️ Mars | Aggressive | ⚠️ Avoid | Avoid starting new tasks |
+| ♄ Saturn | Sluggish | ⚠️ Avoid | Avoid important activities |
 
-## Features
+---
 
-- 🔮 Shows **current running Hora** with recommendations
-- ♃ Highlights **Jupiter Hora** times (most auspicious)
-- 📋 Displays **full 24-hour schedule** (day + night)
-- 🌍 Supports **any location** via geoname ID
-- 📅 Uses **today's date** automatically
+## 🚀 API Endpoints
 
-## Requirements
+### `GET /`
+Welcome message and list of available endpoints.
 
-- Python 3.7+
+### `GET /health`
+Health check endpoint for Cloud Run.
+
+### `GET /locations`
+List all preset locations with their geoname IDs.
+
+### `GET /hora`
+Get full hora schedule for a location.
+
+**Parameters:**
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `location` | string | Preset location name (e.g., `austin`, `chennai`) |
+| `geoname_id` | integer | Custom geoname ID from drikpanchang.com |
+| `date` | string | Date in DD/MM/YYYY format (defaults to today) |
+
+**Examples:**
+```bash
+# Using preset location
+curl "https://your-service.run.app/hora?location=austin"
+
+# Using custom geoname ID
+curl "https://your-service.run.app/hora?geoname_id=1264527"
+
+# Specific date
+curl "https://your-service.run.app/hora?location=chennai&date=25/12/2025"
+```
+
+### `GET /hora/current`
+Get only the current running hora (lightweight response).
+
+```bash
+curl "https://your-service.run.app/hora/current?location=austin"
+```
+
+### `GET /hora/jupiter`
+Get Jupiter (most auspicious) hora times for the day.
+
+```bash
+curl "https://your-service.run.app/hora/jupiter?location=chennai"
+```
+
+---
+
+## 📍 Available Locations
+
+**USA:**
+- `austin` - Austin, TX
+- `san_diego` - San Diego, CA
+- `los_angeles` - Los Angeles, CA
+- `new_york` - New York, NY
+- `chicago` - Chicago, IL
+- `houston` - Houston, TX
+- `san_francisco` - San Francisco, CA
+
+**India:**
+- `chennai` - Chennai
+- `hyderabad` - Hyderabad
+- `mumbai` - Mumbai
+- `bangalore` - Bangalore
+- `delhi` - Delhi
+- `kolkata` - Kolkata
+
+**Other:**
+- `london` - London, UK
+- `sydney` - Sydney, Australia
+- `singapore` - Singapore
+
+> 💡 **Custom locations:** Find your city's geoname ID on [drikpanchang.com](https://www.drikpanchang.com) and use the `geoname_id` parameter.
+
+---
+
+## 🏃 Running Locally
+
+### Prerequisites
+- Python 3.9+
 - Google Chrome browser
-- ChromeDriver (matching your Chrome version)
+- ChromeDriver
 
-## Installation
+### Setup
 
 1. Clone the repository:
    ```bash
@@ -40,89 +112,119 @@ In Vedic astrology, each hour of the day is ruled by a specific planet. These pl
 
 2. Install dependencies:
    ```bash
-   pip install selenium
+   pip install -r requirements.txt
    ```
 
-3. Ensure ChromeDriver is installed and in your PATH
+3. Run the API:
+   ```bash
+   python main.py
+   ```
 
-## Usage
+4. Open http://localhost:8080/docs for interactive API documentation.
 
+---
+
+## ☁️ Deploy to Google Cloud Run
+
+### Prerequisites
+- [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) installed
+- A Google Cloud project with billing enabled
+- Cloud Run API enabled
+
+### Step 1: Authenticate with Google Cloud
 ```bash
-python hora_scraper.py
+gcloud auth login
+gcloud config set project YOUR_PROJECT_ID
 ```
 
-### Changing Location
-
-Edit the `geoname_id` variable in the script:
-
-```python
-geoname_id = 4671654  # Austin, TX (default)
+### Step 2: Enable required APIs
+```bash
+gcloud services enable run.googleapis.com
+gcloud services enable cloudbuild.googleapis.com
 ```
 
-#### Available Geoname IDs
+### Step 3: Build and deploy
+```bash
+# Build the container image
+gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/hora-api
 
-**USA:**
-| City | Geoname ID |
-|------|------------|
-| Austin, TX | 4671654 |
-| San Diego, CA | 5391811 |
-| Los Angeles, CA | 5368361 |
-| New York, NY | 5128581 |
-| Chicago, IL | 4887398 |
-| Houston, TX | 4699066 |
-| San Francisco, CA | 5391959 |
+# Deploy to Cloud Run
+gcloud run deploy hora-api \
+  --image gcr.io/YOUR_PROJECT_ID/hora-api \
+  --platform managed \
+  --region us-central1 \
+  --allow-unauthenticated \
+  --memory 1Gi \
+  --timeout 60s
+```
 
-**India:**
-| City | Geoname ID |
-|------|------------|
-| Chennai | 1264527 |
-| Hyderabad | 1269843 |
-| Mumbai | 1275339 |
-| Bangalore | 1277333 |
-| Delhi | 1273294 |
-| Kolkata | 1275004 |
+### Step 4: Get your service URL
+After deployment, you'll receive a URL like:
+```
+https://hora-api-xxxxxxxxxx-uc.a.run.app
+```
 
-**Other:**
-| City | Geoname ID |
-|------|------------|
-| London, UK | 2643743 |
-| Sydney, AU | 2147714 |
-| Singapore | 1880252 |
+Test it:
+```bash
+curl "https://hora-api-xxxxxxxxxx-uc.a.run.app/hora?location=austin"
+```
 
-> 💡 **Finding other cities:** Visit [drikpanchang.com](https://www.drikpanchang.com), search for your city, and copy the `geoname-id` from the URL.
+---
 
-## Sample Output
+## 📊 Sample API Response
+
+```json
+{
+  "success": true,
+  "title": "December 25, 2025 Shubha Horai...",
+  "date": "25/12/2025",
+  "geoname_id": 4671654,
+  "current_time": "07:03 PM",
+  "current_hora": {
+    "planet": "Saturn",
+    "nature": "Sluggish",
+    "emoji": "♄",
+    "quality": "avoid",
+    "start": "06:46 PM",
+    "end": "07:55 PM"
+  },
+  "next_hora": {
+    "planet": "Jupiter",
+    "nature": "Fruitful",
+    "emoji": "♃",
+    "quality": "good",
+    "start": "07:55 PM",
+    "end": "09:04 PM"
+  },
+  "jupiter_horas": [...],
+  "day_horas": [...],
+  "night_horas": [...],
+  "full_schedule": [...]
+}
+```
+
+---
+
+## 📁 Project Structure
 
 ```
-🕉️  Hora | Planetary Hours | Choghadiya
-
-⏰ Current Time: 10:30 AM
-
-🔮 ═══════════════════════════════════════════════════════════════════
-   1. CURRENT RUNNING HORA
-══════════════════════════════════════════════════════════════════════
-
-   ⏰ RIGHT NOW: ♃ JUPITER HORA
-   🕐 Time: 10:15 AM to 11:22 AM
-   ✨ Nature: Fruitful
-
-   ✅ GOOD TIME for important activities!
-
-♃ ════════════════════════════════════════════════════════════════════
-   2. JUPITER (GURU) HORA - Today's Schedule
-══════════════════════════════════════════════════════════════════════
-
-   🌟 Jupiter Hora is the MOST AUSPICIOUS time for:
-      • Starting new ventures & businesses
-      • Education & learning
-      • Legal matters & signing contracts
-      • Spiritual activities & prayers
-
-   📅 Today's Jupiter Hora Times:
-   ---------------------------------------------
-   ♃ 10:15 AM to 11:22 AM
-   ♃ 5:30 PM to 6:37 PM
+HoraDetails/
+├── main.py              # FastAPI application
+├── hora_scraper.py      # Original CLI scraper
+├── requirements.txt     # Python dependencies
+├── Dockerfile           # Container configuration
+└── README.md            # Documentation
 ```
+
+---
+
+## 📖 Interactive API Docs
+
+Once running, visit:
+- **Swagger UI:** `http://localhost:8080/docs`
+- **ReDoc:** `http://localhost:8080/redoc`
+
+---
 
 ## License
 
@@ -131,4 +233,3 @@ MIT License
 ## Acknowledgments
 
 - Data sourced from [Drik Panchang](https://www.drikpanchang.com)
-
