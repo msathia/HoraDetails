@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
@@ -162,8 +162,36 @@ def scrape_hora(geoname_id: int, date_str: str, timezone_str: str = "America/Chi
     driver = get_chrome_driver(timezone_str, lat, lng)
     
     try:
-        driver.get(url)
-        time.sleep(6)
+        # Try up to 3 times to get valid Austin data
+        valid_data = False
+        for attempt in range(3):
+            driver.get(url)
+            time.sleep(6 + attempt * 2)  # Wait longer on retries
+            
+            page_source = driver.page_source
+            
+            # For Austin, validate first hora starts around 7:20-7:30 AM
+            if geoname_id == 4671654:
+                first_match = re.search(r'(\d{1,2}):(\d{2})\s*<span[^>]*>AM</span>', page_source)
+                if first_match:
+                    hour = int(first_match.group(1))
+                    minute = int(first_match.group(2))
+                    first_minutes = hour * 60 + minute
+                    # Austin sunrise in Dec is ~7:20-7:30 AM (440-450 minutes)
+                    if 435 <= first_minutes <= 455:
+                        valid_data = True
+                        break
+                    # Wrong data, clear cookies and retry
+                    driver.delete_all_cookies()
+            else:
+                valid_data = True
+                break
+        
+        if not valid_data and geoname_id == 4671654:
+            # Last attempt, just accept whatever we get
+            driver.get(url)
+            time.sleep(8)
+            page_source = driver.page_source
         
         page_title = driver.title
         page_source = driver.page_source
@@ -469,6 +497,233 @@ def get_recommendation(hora: dict, next_jupiter: dict = None) -> str:
         recommendation += f" | ♃ Next Jupiter Hora: {jupiter_start}"
     
     return recommendation
+
+
+def generate_hora_html(data: dict) -> str:
+    """Generate beautiful HTML page for hora data."""
+    location = data.get('location', 'Unknown')
+    current_time = data.get('current_time', '')
+    date = data.get('date', '')
+    current_hora = data.get('current_hora', {})
+    next_hora = data.get('next_hora', {})
+    jupiter_horas = data.get('jupiter_horas', [])
+    day_horas = data.get('day_horas', [])
+    night_horas = data.get('night_horas', [])
+    
+    current_planet = current_hora.get('planet', 'Unknown')
+    current_emoji = current_hora.get('emoji', '🌟')
+    current_quality = current_hora.get('quality', 'neutral')
+    current_start = current_hora.get('start', '')
+    current_end = current_hora.get('end', '')
+    
+    # Quality styling
+    quality_colors = {
+        'good': ('#10b981', '#d1fae5', '✅ Auspicious'),
+        'avoid': ('#ef4444', '#fee2e2', '⚠️ Avoid'),
+        'neutral': ('#f59e0b', '#fef3c7', '🔸 Neutral')
+    }
+    q_color, q_bg, q_text = quality_colors.get(current_quality, quality_colors['neutral'])
+    
+    # Generate day horas table rows
+    day_rows = ""
+    for i, hora in enumerate(day_horas):
+        quality = hora.get('quality', 'neutral')
+        bg = '#d1fae5' if quality == 'good' else ('#fee2e2' if quality == 'avoid' else '#fef3c7')
+        symbol = '✓' if quality == 'good' else ('✗' if quality == 'avoid' else '~')
+        day_rows += f'''
+        <tr style="background: {bg};">
+            <td>{i+1}</td>
+            <td>{hora.get('emoji', '')} {hora.get('planet', '')}</td>
+            <td>{hora.get('start', '')} - {hora.get('end', '')}</td>
+            <td>{hora.get('nature', '')}</td>
+            <td style="font-weight: bold;">{symbol}</td>
+        </tr>'''
+    
+    # Generate night horas table rows
+    night_rows = ""
+    for i, hora in enumerate(night_horas):
+        quality = hora.get('quality', 'neutral')
+        bg = '#d1fae5' if quality == 'good' else ('#fee2e2' if quality == 'avoid' else '#fef3c7')
+        symbol = '✓' if quality == 'good' else ('✗' if quality == 'avoid' else '~')
+        night_rows += f'''
+        <tr style="background: {bg};">
+            <td>{i+1}</td>
+            <td>{hora.get('emoji', '')} {hora.get('planet', '')}</td>
+            <td>{hora.get('start', '')} - {hora.get('end', '')}</td>
+            <td>{hora.get('nature', '')}</td>
+            <td style="font-weight: bold;">{symbol}</td>
+        </tr>'''
+    
+    # Generate Jupiter horas list
+    jupiter_list = "".join([f'<li>♃ {h.get("start", "")} - {h.get("end", "")}</li>' for h in jupiter_horas])
+    
+    html = f'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🕉️ Hora - {location}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{
+            font-family: 'Poppins', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }}
+        .container {{ max-width: 900px; margin: 0 auto; }}
+        .header {{
+            text-align: center;
+            padding: 30px 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 20px;
+            margin-bottom: 25px;
+            backdrop-filter: blur(10px);
+        }}
+        .header h1 {{ font-size: 2.5em; margin-bottom: 10px; }}
+        .header .location {{ color: #fbbf24; font-size: 1.2em; }}
+        .header .time {{ color: #94a3b8; margin-top: 10px; }}
+        
+        .current-hora {{
+            background: {q_bg};
+            color: #1a1a2e;
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 25px;
+            text-align: center;
+            border-left: 6px solid {q_color};
+        }}
+        .current-hora .planet {{ font-size: 3em; margin-bottom: 10px; }}
+        .current-hora .name {{ font-size: 1.8em; font-weight: 600; color: {q_color}; }}
+        .current-hora .time-range {{ font-size: 1.2em; color: #64748b; margin: 10px 0; }}
+        .current-hora .quality {{ 
+            display: inline-block;
+            padding: 8px 20px;
+            background: {q_color};
+            color: white;
+            border-radius: 20px;
+            font-weight: 500;
+        }}
+        
+        .jupiter-box {{
+            background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%);
+            color: #1a1a2e;
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }}
+        .jupiter-box h2 {{ margin-bottom: 15px; }}
+        .jupiter-box ul {{ list-style: none; }}
+        .jupiter-box li {{ 
+            padding: 10px 15px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 10px;
+            margin: 8px 0;
+            font-weight: 500;
+        }}
+        
+        .schedule {{
+            background: rgba(255,255,255,0.95);
+            color: #1a1a2e;
+            border-radius: 20px;
+            padding: 25px;
+            margin-bottom: 25px;
+        }}
+        .schedule h2 {{ 
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #e2e8f0;
+        }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th, td {{ padding: 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }}
+        th {{ background: #1a1a2e; color: white; font-weight: 500; }}
+        tr:hover {{ opacity: 0.9; }}
+        
+        .legend {{
+            text-align: center;
+            padding: 15px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            color: #94a3b8;
+        }}
+        .legend span {{ margin: 0 15px; }}
+        
+        .footer {{
+            text-align: center;
+            padding: 20px;
+            color: #64748b;
+            font-size: 0.9em;
+        }}
+        .footer a {{ color: #fbbf24; text-decoration: none; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🕉️ Hora Schedule</h1>
+            <div class="location">📍 {location}</div>
+            <div class="time">📅 {date} &nbsp;|&nbsp; 🕐 {current_time}</div>
+        </div>
+        
+        <div class="current-hora">
+            <div class="planet">{current_emoji}</div>
+            <div class="name">{current_planet} Hora</div>
+            <div class="time-range">{current_start} - {current_end}</div>
+            <div class="quality">{q_text}</div>
+        </div>
+        
+        <div class="jupiter-box">
+            <h2>♃ Jupiter Hora Times (Most Auspicious)</h2>
+            <ul>{jupiter_list}</ul>
+        </div>
+        
+        <div class="schedule">
+            <h2>☀️ Day Hora (Sunrise → Sunset)</h2>
+            <table>
+                <thead>
+                    <tr><th>#</th><th>Planet</th><th>Time</th><th>Nature</th><th>Status</th></tr>
+                </thead>
+                <tbody>{day_rows}</tbody>
+            </table>
+        </div>
+        
+        <div class="schedule">
+            <h2>🌙 Night Hora (Sunset → Sunrise)</h2>
+            <table>
+                <thead>
+                    <tr><th>#</th><th>Planet</th><th>Time</th><th>Nature</th><th>Status</th></tr>
+                </thead>
+                <tbody>{night_rows}</tbody>
+            </table>
+        </div>
+        
+        <div class="legend">
+            <span style="color: #10b981;">✓ Good</span>
+            <span style="color: #f59e0b;">~ Neutral</span>
+            <span style="color: #ef4444;">✗ Avoid</span>
+        </div>
+        
+        <div class="footer">
+            Data from <a href="https://www.drikpanchang.com" target="_blank">Drik Panchang</a> |
+            <a href="/docs">API Documentation</a>
+        </div>
+    </div>
+</body>
+</html>'''
+    return html
+
+
+@app.get("/view", response_class=HTMLResponse)
+async def view_hora(
+    location: Optional[str] = Query("austin", description="Preset location name"),
+    geoname_id: Optional[int] = Query(None, description="Custom geoname ID"),
+    date: Optional[str] = Query(None, description="Date in DD/MM/YYYY format")
+):
+    """View Hora schedule as a beautiful HTML page."""
+    result = await get_hora(location=location, geoname_id=geoname_id, date=date)
+    return HTMLResponse(content=generate_hora_html(result))
 
 
 if __name__ == "__main__":
